@@ -2,16 +2,18 @@
 Multi-Robot Collision Avoidance using Reinforcement Learning
 
 ## Dependencies
-ROS Indigo
+- ROS Indigo
 
-Stage Simulator
+- Stage Simulator
 
-teleop\_twist\_keyboard (optional)
+- Python 3
 
 ## How to run
 Start ROS `roscore`
 
 Start simulation `rosrun stage_ros stageros [worldfile]`
 
-Teleoperate robot\_0 `rosrun teleop_twist_keyboard teleop_twist_keyboard.py cmd_vel:=robot_0/cmd_vel`
+Teleoperate robot: `python3 src/teleop.py`
+
+Run super-simple autonomy: `python3 src/naive_controller.py`
 

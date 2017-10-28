@@ -93,7 +93,7 @@ def main():
     while not rospy.is_shutdown():
         key = get()
         update_twist(cmd, key)
-        print cmd
+        #print cmd
         controller.publish(cmd)
         #rate.sleep()
 
