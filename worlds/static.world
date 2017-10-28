@@ -57,21 +57,14 @@ pioneer2dx_base_no_sonar
   localization_origin [ 0 0 0 0 ]
 
   trail_length 400
-    
 )
 
-# A robot that wanders randomly
-define wanderer pioneer2dx
+# A dummy robot to force our controls to be on /robot_0/cmd_vel
+# instead of just /cmd_vel
+define dummybot pioneer2dx
 (
-  color "blue"
-  ctrl "wander"
-  sicklaser( pose [ 0 0 0 0 ] ) 
+    name "dummy"
+    color "white"
 )
 
-wanderer( pose [-2 -2 0 0] )
-wanderer( pose [-2 -3 0 0] )
-wanderer( pose [2 -2 0 0] )
-wanderer( pose [5 5 0 0] )
-wanderer( pose [-2 -7 0 0] )
-wanderer( pose [-2 -1 0 0] )
-wanderer( pose [-3 -2 0 0] )
+dummybot( pose [10 10 0 0] )  # we'll even keep it outside the arena
