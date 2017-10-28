@@ -38,7 +38,7 @@ class _Getch:
 
 def get():
     """
-    Capture a keypress and print the result.
+    Capture a keypress and return the result.
     """
     inkey = _Getch()
     while(1):
@@ -59,19 +59,25 @@ def update_twist(twist, key):
     """
     Capture keyboard input and use this to produce an
     updated twist message
+
+    This function defines how key presses map to actions
     """
     # Parameters for changes
-    d_lin = 0.1
-    d_ang = 0.1
+    d_lin = 0.5
+    d_ang = 0.5
 
     if key == "up":
-        twist.linear.x += d_lin
+        twist.linear.x = d_lin
+        twist.angular.z = 0
     elif key == "down":
-        twist.linear.x -= d_lin
+        twist.linear.x = -d_lin
+        twist.angular.z = 0
     elif key == "left":
-        twist.angular.z += d_lin
+        twist.angular.z = +d_lin
+        twist.linear.x = 0
     elif key == "right":
-        twist.angular.z -= d_lin
+        twist.angular.z = -d_lin
+        twist.linear.x = 0
 
 def main():
     # Create a new ROS node with a unique name
@@ -81,6 +87,8 @@ def main():
 
     # set initial command velocities to 0
     cmd = Twist()
+
+    print "Use arrow keys to move: "
 
     while not rospy.is_shutdown():
         key = get()
