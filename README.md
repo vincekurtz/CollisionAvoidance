@@ -6,14 +6,19 @@ Multi-Robot Collision Avoidance using Reinforcement Learning
 
 - Stage Simulator
 
-- Python 3
+- Python 2.7
+
+- scikit-learn
+
+- numpy
 
 ## How to run
 Start ROS `roscore`
 
 Start simulation `rosrun stage_ros stageros [worldfile]`
 
-Teleoperate robot: `python3 src/teleop.py`
+Teleoperate robot: `python src/teleop.py`
 
-Run super-simple autonomy: `python3 src/naive_controller.py`
+Run super-simple autonomy: `python src/naive_controller.py`
 
+Run simple RL controller: `python src/rl_controller.py`
