@@ -33,12 +33,17 @@ def update_twist(twist, q_vals):
     """
     Given Q(s,a) for a certain state choose the 
     action that mazimizes Q and move accordingly.
+
+    Use epsilon-greedy exploration too.
     """
     d_lin = 0.5  # step sizes
     d_ang = 0.5
 
+    r = random.random()  # draw from uniform[0,1]
+    epsilon = 0.2
+
     possible_actions = [0,1,2]  # left, straight, right
-    if (q_vals == None):
+    if (r < epsilon):
         # Act completely randomly
         action = random.choice(possible_actions)
     else:
@@ -165,15 +170,19 @@ def display_plot(iters, coll_freq, cu_reward):
     #plt.save("collision_frequency_plot.png")
     plt.show()
 
-def start_simulator():
+def start_simulator(gui=True):
     with open('/home/vince/.ros/log/stage_from_rl_controller.log', 'w') as fp:
         worldfile = "/home/vince/catkin_ws/src/collision_avoidance/worlds/static.world"
-        proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
+        if gui:
+            proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
+        else:
+            # Adding -g argument runs the simulator without the gui
+            proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", "-g", worldfile], stdout=fp)
     return proc.pid
 
 def main():
 
-    sim_pid = start_simulator()
+    sim_pid = start_simulator(gui=False)
 
     # set initial command velocities to 0
     cmd = Twist()
@@ -187,7 +196,7 @@ def main():
             warm_start=True   # reuse previous call to fit as initialization
             )
 
-    update_interval = 1000  # how many actions to take before retraining
+    update_interval = 500  # how many actions to take before retraining
     
     X_rand = np.vstack([np.array([8*random.random() for i in range(180)]).reshape(1,-1) for i in range(update_interval)])  # random sensor input
     y_rand = np.vstack([np.array([1 for i in range(3)]).reshape(1,-1) for i in range(update_interval)])      # start with equal value on all actions
@@ -255,9 +264,8 @@ def main():
 
         # Update network from replay buffer
         print("==> Retraining")
-        print(X.shape,y.shape)
         # Drop old data from the replay buffer
-        X = X[update_interval:]    # drop all data from before the most recent iteration
+        X = X[update_interval:]    
         y = y[update_interval:]
         print(X.shape,y.shape)
         q_net.partial_fit(X,y)
