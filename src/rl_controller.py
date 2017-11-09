@@ -11,13 +11,23 @@ import random
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Empty
 from sklearn.neural_network import MLPRegressor
 import numpy as np
 import copy
+import matplotlib.pyplot as plt
+import subprocess
+import os
+import signal
 
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
 odom_data = Odometry().twist.twist
+
+# Collision frequencies for plotting are also global variables so we can 
+# access them even after the main program is shut down
+iterations = []
+collision_frequencies = []
 
 def update_twist(twist, q_vals):
     """
@@ -128,7 +138,34 @@ def correct_Q(action, state, reward, old_Q, next_Q):
 
     return new_Q
 
+def display_cf_plot(iters, collisions):
+    """
+    Display a plot of collision frequencies given the data
+    """
+    plt.plot(iters, collisions)
+    plt.xlabel("Iteration")
+    plt.ylabel("Number of Collisions")
+    #plt.save("collision_frequency_plot.png")
+    plt.show()
+
+def start_simulator():
+    with open(os.devnull, 'w') as fp:
+        worldfile = "/home/vince/catkin_ws/src/collision_avoidance/worlds/static.world"
+        proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
+    return proc.pid
+
+def restart_simulator(old_pid):
+    """
+    Kills the given process id and starts a new
+    simulator
+    """
+    os.kill(old_pid, signal.SIGTERM)
+    new_pid = start_simulator()
+    return new_pid
+
 def main():
+
+    sim_pid = start_simulator()
 
     # set initial command velocities to 0
     cmd = Twist()
@@ -157,9 +194,16 @@ def main():
     X = X_rand  # stores states
     y = y_rand  # stores corrected Q-values values
 
+    # variables to plot results at the end
+    global iterations
+    global collision_frequencies
+    it = 1
+    cf = 0
+
     rospy.sleep(1)  # wait a second to be sure we have good state infos
 
     while not rospy.is_shutdown():
+        cf = 0  # reset collision frequency counter
         for i in range(update_interval):
             # Sensor data updated asynchronously and stored in global var sensor_data
             # Get state (sensor info)
@@ -170,12 +214,13 @@ def main():
 
             # Control accordingly
             action = update_twist(cmd, Q_values)
-
             controller.publish(cmd)
 
             # Get reward from last action
             R = calc_reward(state, last_action)
             print(R)
+            if (R == -2):
+                cf += 1  # we collided, iterate the counter
 
             # Calculate correct Q(s,a) from last action
             # Q(s,a) = R + gamma*Q(s+1,a+1)
@@ -198,15 +243,26 @@ def main():
         print(X.shape,y.shape)
         q_net.fit(X,y)
 
+        # Move everyone back to their original positions
+        reset_positions()
+
+        # add collision frequency data
+        iterations.append(it)
+        collision_frequencies.append(cf)
+
+        it +=1
+
 if __name__=='__main__':
     try:
         # Initialize ros node and publishers/subscribers
-        rospy.init_node('naive_controller', anonymous=True)
+        rospy.init_node('rl_controller', anonymous=True)
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
         tracker = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
+        reset_positions = rospy.ServiceProxy('reset_positions', Empty)
         rate = rospy.Rate(10) # 10 hz
 
         main()
     except rospy.ROSInterruptException:
+        display_cf_plot(iterations,collision_frequencies) 
         pass
