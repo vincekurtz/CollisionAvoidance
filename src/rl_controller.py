@@ -17,8 +17,6 @@ import numpy as np
 import copy
 import matplotlib.pyplot as plt
 import subprocess
-import os
-import signal
 
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
@@ -28,6 +26,7 @@ odom_data = Odometry().twist.twist
 # access them even after the main program is shut down
 iterations = []
 collision_frequencies = []
+cumulative_reward = []
 
 def update_twist(twist, q_vals):
     """
@@ -77,7 +76,8 @@ def calc_reward(state, action):
     and the current state.
     """
     if is_crashed():
-        crash_recovery()
+        #crash_recovery()
+        reset_positions()
         return -2
     elif close_to_obstacle(state):
         return -1
@@ -138,13 +138,21 @@ def correct_Q(action, state, reward, old_Q, next_Q):
 
     return new_Q
 
-def display_cf_plot(iters, collisions):
+def display_plot(iters, coll_freq, cu_reward):
     """
-    Display a plot of collision frequencies given the data
+    Display a plot of collision frequencies and cumulative reward
     """
-    plt.plot(iters, collisions)
-    plt.xlabel("Iteration")
-    plt.ylabel("Number of Collisions")
+    fig, ax1 = plt.subplots()
+
+    ax1.plot(iters, coll_freq, 'rx')
+    ax1.set_xlabel("Iteration")
+    ax1.set_ylabel("Number of Collisions", color='r')
+
+    ax2 = ax1.twinx()
+    ax2.plot(iters, cu_reward, 'bo')
+    ax2.set_ylabel("Cumulative Reward", color='b')
+
+    fig.tight_layout()
     #plt.save("collision_frequency_plot.png")
     plt.show()
 
@@ -153,15 +161,6 @@ def start_simulator():
         worldfile = "/home/vince/catkin_ws/src/collision_avoidance/worlds/static.world"
         proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
     return proc.pid
-
-def restart_simulator(old_pid):
-    """
-    Kills the given process id and starts a new
-    simulator
-    """
-    os.kill(old_pid, signal.SIGTERM)
-    new_pid = start_simulator()
-    return new_pid
 
 def main():
 
@@ -172,9 +171,9 @@ def main():
 
     # initialize Q-network
     q_net = MLPRegressor(
-            solver='sgd',
+            solver='adam',
             activation='relu',
-            hidden_layer_sizes=(100,100),
+            hidden_layer_sizes=(100,300,100),
             random_state=1
             )
     
@@ -185,7 +184,7 @@ def main():
     q_net.partial_fit(X_rand,y_rand)
 
     
-    update_interval = 100
+    update_interval = 1000
     last_action = 1
     last_state = X_rand
     old_Q = q_net.predict(X_rand)
@@ -197,13 +196,15 @@ def main():
     # variables to plot results at the end
     global iterations
     global collision_frequencies
-    it = 1
-    cf = 0
+    global cumulative_reward
+    it = 1  # iteration counter
 
     rospy.sleep(1)  # wait a second to be sure we have good state infos
 
     while not rospy.is_shutdown():
         cf = 0  # reset collision frequency counter
+        cr = 0 # reset cumulative reward counter
+        print("==> Running")
         for i in range(update_interval):
             # Sensor data updated asynchronously and stored in global var sensor_data
             # Get state (sensor info)
@@ -218,9 +219,11 @@ def main():
 
             # Get reward from last action
             R = calc_reward(state, last_action)
-            print(R)
+
+            # update things that keep track of results
             if (R == -2):
                 cf += 1  # we collided, iterate the counter
+            cr += R  # add the reward to our running total
 
             # Calculate correct Q(s,a) from last action
             # Q(s,a) = R + gamma*Q(s+1,a+1)
@@ -239,7 +242,7 @@ def main():
 
 
         # Update network from replay buffer
-        print("Retraining!!")
+        print("==> Retraining")
         print(X.shape,y.shape)
         q_net.fit(X,y)
 
@@ -249,6 +252,13 @@ def main():
         # add collision frequency data
         iterations.append(it)
         collision_frequencies.append(cf)
+        cumulative_reward.append(cr)
+
+        print("")
+        print("Iteration:  %s" % iterations)
+        print("Coll Freq:  %s" % collision_frequencies)
+        print("Reward:     %s" % cumulative_reward)
+        print("")
 
         it +=1
 
@@ -260,9 +270,12 @@ if __name__=='__main__':
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
         tracker = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
         reset_positions = rospy.ServiceProxy('reset_positions', Empty)
-        rate = rospy.Rate(10) # 10 hz
+        rate = rospy.Rate(100) # in hz
 
         main()
     except rospy.ROSInterruptException:
-        display_cf_plot(iterations,collision_frequencies) 
         pass
+    finally:
+        # always display plots before quitting, even when something gets messed up
+        # along the way
+        display_plot(iterations, collision_frequencies, cumulative_reward) 

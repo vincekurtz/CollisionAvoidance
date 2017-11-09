@@ -7,7 +7,7 @@ include "map.inc"
 include "sick.inc"
 
 # time to pause (in GUI mode) or quit (in headless mode (-g)) the simulation
-quit_time 3600 # 1 hour of simulated time
+quit_time 36000 # 10 hours of simulated time
 
 paused 0
 
@@ -16,7 +16,7 @@ resolution 0.02
 
 # set the multiple of real time that Stage should try to achieve. Default is 1. 
 # set to 0 to go as fast as possible.
-speedup 1.000
+speedup 10.000
 
 # configure the GUI window
 window
