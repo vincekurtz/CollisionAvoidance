@@ -17,6 +17,7 @@ import numpy as np
 import copy
 import matplotlib.pyplot as plt
 import subprocess
+import os
 
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
@@ -77,7 +78,15 @@ def calc_reward(state, action):
     """
     if is_crashed():
         #crash_recovery()
-        reset_positions()
+        
+        try:
+            reset_positions()
+        except rospy.service.ServiceException:
+            print("WARNING: Service Exeption Raised. Retrying reset")
+            for j in range(3):
+                rate.sleep()  # wait a few cycles to calm down
+            reset_positions()
+
         return -2
     elif close_to_obstacle(state):
         return -1
@@ -157,7 +166,7 @@ def display_plot(iters, coll_freq, cu_reward):
     plt.show()
 
 def start_simulator():
-    with open(os.devnull, 'w') as fp:
+    with open('/home/vince/.ros/log/stage_from_rl_controller.log', 'w') as fp:
         worldfile = "/home/vince/catkin_ws/src/collision_avoidance/worlds/static.world"
         proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
     return proc.pid
@@ -174,19 +183,21 @@ def main():
             solver='adam',
             activation='relu',
             hidden_layer_sizes=(100,300,100),
-            random_state=1
+            random_state=1,
+            warm_start=True   # reuse previous call to fit as initialization
             )
+
+    update_interval = 1000  # how many actions to take before retraining
     
-    X_rand = np.array([8*random.random() for i in range(180)]).reshape(1,-1)  # random sensor input
-    y_rand = np.array([1 for i in range(3)]).reshape(1,-1)      # start with equal value on all actions
+    X_rand = np.vstack([np.array([8*random.random() for i in range(180)]).reshape(1,-1) for i in range(update_interval)])  # random sensor input
+    y_rand = np.vstack([np.array([1 for i in range(3)]).reshape(1,-1) for i in range(update_interval)])      # start with equal value on all actions
 
     # Train on random data initially, just so we can fit to something
     q_net.partial_fit(X_rand,y_rand)
 
     
-    update_interval = 1000
     last_action = 1
-    last_state = X_rand
+    last_state = X_rand[-1]  # take the last randomly generated entry to be the "previous state" for initialization
     old_Q = q_net.predict(X_rand)
 
     # initialize replay buffer
@@ -205,6 +216,7 @@ def main():
         cf = 0  # reset collision frequency counter
         cr = 0 # reset cumulative reward counter
         print("==> Running")
+
         for i in range(update_interval):
             # Sensor data updated asynchronously and stored in global var sensor_data
             # Get state (sensor info)
@@ -244,10 +256,20 @@ def main():
         # Update network from replay buffer
         print("==> Retraining")
         print(X.shape,y.shape)
-        q_net.fit(X,y)
+        # Drop old data from the replay buffer
+        X = X[update_interval:]    # drop all data from before the most recent iteration
+        y = y[update_interval:]
+        print(X.shape,y.shape)
+        q_net.partial_fit(X,y)
 
         # Move everyone back to their original positions
-        reset_positions()
+        try:
+            reset_positions()
+        except rospy.service.ServiceException:
+            print("WARNING: Service Exeption Raised. Retrying reset")
+            for j in range(3):
+                rate.sleep()  # wait a few cycles to calm down
+            reset_positions()
 
         # add collision frequency data
         iterations.append(it)
