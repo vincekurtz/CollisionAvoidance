@@ -13,6 +13,7 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
 from sklearn.neural_network import MLPRegressor
+from sklearn.externals import joblib
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
@@ -22,6 +23,9 @@ import os
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
 odom_data = Odometry().twist.twist
+
+# The network will be saved regardless of completion
+q_net = None
 
 # Collision frequencies for plotting are also global variables so we can 
 # access them even after the main program is shut down
@@ -180,6 +184,16 @@ def start_simulator(gui=True):
             proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", "-g", worldfile], stdout=fp)
     return proc.pid
 
+def save_model(trained_model):
+    """
+    Save our parameters to a pickel file so it can
+    be reloaded and used again later
+    """
+    filename = '/home/vince/catkin_ws/src/collision_avoidance/tmp/trained_model.pkl'
+    print("\n==> Saving Model to %s" % filename)
+    with open(filename, 'wb') as out:
+        joblib.dump(trained_model, out)
+
 def main():
 
     sim_pid = start_simulator(gui=False)
@@ -188,6 +202,7 @@ def main():
     cmd = Twist()
 
     # initialize Q-network
+    global q_net
     q_net = MLPRegressor(
             solver='adam',
             activation='relu',
@@ -196,14 +211,13 @@ def main():
             warm_start=True   # reuse previous call to fit as initialization
             )
 
-    update_interval = 500  # how many actions to take before retraining
+    update_interval = 1000  # how many actions to take before retraining
     
     X_rand = np.vstack([np.array([8*random.random() for i in range(180)]).reshape(1,-1) for i in range(update_interval)])  # random sensor input
     y_rand = np.vstack([np.array([1 for i in range(3)]).reshape(1,-1) for i in range(update_interval)])      # start with equal value on all actions
 
     # Train on random data initially, just so we can fit to something
     q_net.partial_fit(X_rand,y_rand)
-
     
     last_action = 1
     last_state = X_rand[-1]  # take the last randomly generated entry to be the "previous state" for initialization
@@ -309,3 +323,6 @@ if __name__=='__main__':
         # always display plots before quitting, even when something gets messed up
         # along the way
         display_plot(iterations, collision_frequencies, cumulative_reward) 
+
+        # also be sure to save the model parameters
+        save_model(q_net)
