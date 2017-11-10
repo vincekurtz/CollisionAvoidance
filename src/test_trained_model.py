@@ -32,8 +32,8 @@ def main():
 
     rospy.sleep(1)
 
+    print("==> Running")
     while not rospy.is_shutdown():
-        print("==> Running")
         state = np.array(sensor_data).reshape(1,-1)
 
         if is_crashed():
@@ -55,7 +55,7 @@ if __name__=="__main__":
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
         tracker = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
         reset_positions = rospy.ServiceProxy('reset_positions', Empty)
-        rate = rospy.Rate(10) # in hz
+        rate = rospy.Rate(100) # in hz
 
         main()
     except rospy.ROSInterruptException:

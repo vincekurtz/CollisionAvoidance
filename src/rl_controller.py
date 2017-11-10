@@ -9,6 +9,7 @@
 import rospy
 import random
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
@@ -67,18 +68,26 @@ def update_twist(twist, q_vals):
 
     return action
 
-def crash_recovery():
+def teleport_random():
     """
-    Iterrupt whatever's going on and get us out of a crash,
-    essentially by backing up a few steps
+    Teleport the robot to a new random position on map
     """
-    print("Performing Crash Recovery")
-    d_lin = 0.5 # step size
-    cmd = Twist()
-    cmd.linear.x = -d_lin  
-    for i in range(15):
-        controller.publish(cmd)
-        rate.sleep()
+    print("teleporting!")
+    x_min = -8  # bounds of the map
+    x_max = 8
+    y_min = -8
+    y_max = 8
+
+    # Randomly generate a pose
+    cmd_pose = Pose()
+    cmd_pose.position.x = random.uniform(x_min, x_max)
+    cmd_pose.position.y = random.uniform(y_min, y_max)
+
+    cmd_pose.orientation.z = random.uniform(-7,7)   # janky way of getting most of the angles from a quaternarion
+    cmd_pose.orientation.w = 1
+
+    # ... and publish it as the new pose of the robot
+    teleporter.publish(cmd_pose)
 
 def calc_reward(state, action):
     """
@@ -87,14 +96,7 @@ def calc_reward(state, action):
     """
     if is_crashed():
         #crash_recovery()
-        
-        try:
-            reset_positions()
-        except rospy.service.ServiceException:
-            print("WARNING: Service Exeption Raised. Retrying reset")
-            for j in range(3):
-                rate.sleep()  # wait a few cycles to calm down
-            reset_positions()
+        teleport_random()
 
         return -2
     elif close_to_obstacle(state):
@@ -199,7 +201,8 @@ def main():
     sim_pid = start_simulator(gui=False)
 
     # set initial command velocities to 0
-    cmd = Twist()
+    cmd_vel = Twist()
+    cmd_pose = Pose()   # also initialize a pose for teleportation purposes
 
     # initialize Q-network
     global q_net
@@ -249,8 +252,8 @@ def main():
             Q_values = q_net.predict(state)
 
             # Control accordingly
-            action = update_twist(cmd, Q_values)
-            controller.publish(cmd)
+            action = update_twist(cmd_vel, Q_values)
+            controller.publish(cmd_vel)
 
             # Get reward from last action
             R = calc_reward(state, last_action)
@@ -285,13 +288,8 @@ def main():
         q_net.partial_fit(X,y)
 
         # Move everyone back to their original positions
-        try:
-            reset_positions()
-        except rospy.service.ServiceException:
-            print("WARNING: Service Exeption Raised. Retrying reset")
-            for j in range(3):
-                rate.sleep()  # wait a few cycles to calm down
-            reset_positions()
+        #reset_positions()
+        teleport_random()
 
         # add collision frequency data
         iterations.append(it)
@@ -311,9 +309,10 @@ if __name__=='__main__':
         # Initialize ros node and publishers/subscribers
         rospy.init_node('rl_controller', anonymous=True)
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
+        teleporter = rospy.Publisher('/robot_0/cmd_pose', Pose, queue_size=10)
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
         tracker = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
-        reset_positions = rospy.ServiceProxy('reset_positions', Empty)
+        #reset_positions = rospy.ServiceProxy('reset_positions', Empty)
         rate = rospy.Rate(100) # in hz
 
         main()
