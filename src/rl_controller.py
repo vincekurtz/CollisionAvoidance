@@ -12,6 +12,7 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Int8
 from std_srvs.srv import Empty
 from sklearn.neural_network import MLPRegressor
 from sklearn.externals import joblib
@@ -24,6 +25,7 @@ import os
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
 odom_data = Odometry().twist.twist
+is_crashed = False
 
 # The network will be saved regardless of completion
 q_net = None
@@ -72,7 +74,6 @@ def teleport_random():
     """
     Teleport the robot to a new random position on map
     """
-    print("teleporting!")
     x_min = -8  # bounds of the map
     x_max = 8
     y_min = -8
@@ -87,18 +88,19 @@ def teleport_random():
     cmd_pose.orientation.w = 1
 
     # ... and publish it as the new pose of the robot
+    rospy.sleep(2)
     teleporter.publish(cmd_pose)
+    rospy.sleep(2)   # wait before and after jumping to avoid segfaults
 
 def calc_reward(state, action):
     """
     Give a scalar reward based on the last action
     and the current state.
     """
-    if is_crashed():
-        #crash_recovery()
+    if is_crashed:
+        #reset_positions()
         teleport_random()
-
-        return -2
+        return -10
     elif close_to_obstacle(state):
         return -1
     elif moved_forward(action):
@@ -119,20 +121,9 @@ def close_to_obstacle(state):
     Return true or false depending if we're within
     a certain distance of an obstacle. 
     """
-    cutoff_dist = 1.0
+    cutoff_dist = 0.5
     closest_obstacle = min(state[0])
     if (closest_obstacle < cutoff_dist):
-        return True
-    return False
-
-def is_crashed():
-    """
-    Indicate if the robot is crashed by seeing if
-    the robot is actually moving
-    """
-    zero_movement = Twist()  # a blank twist command
-        
-    if (odom_data == zero_movement):
         return True
     return False
 
@@ -146,6 +137,13 @@ def sensor_callback(data):
 def odom_callback(data):
     global odom_data
     odom_data = data.twist.twist
+
+def crash_callback(data):
+    global is_crashed
+    if data.data:
+        is_crashed = True
+    else:
+        is_crashed = False
 
 def correct_Q(action, state, reward, old_Q, next_Q):
     """
@@ -164,12 +162,12 @@ def display_plot(iters, coll_freq, cu_reward):
     """
     fig, ax1 = plt.subplots()
 
-    ax1.plot(iters, coll_freq, 'rx')
+    ax1.plot(iters, coll_freq, 'r-')
     ax1.set_xlabel("Iteration")
     ax1.set_ylabel("Number of Collisions", color='r')
 
     ax2 = ax1.twinx()
-    ax2.plot(iters, cu_reward, 'bo')
+    ax2.plot(iters, cu_reward, 'b-')
     ax2.set_ylabel("Cumulative Reward", color='b')
 
     fig.tight_layout()
@@ -178,13 +176,13 @@ def display_plot(iters, coll_freq, cu_reward):
 
 def start_simulator(gui=True):
     with open('/home/vince/.ros/log/stage_from_rl_controller.log', 'w') as fp:
-        worldfile = "/home/vince/catkin_ws/src/collision_avoidance/worlds/static.world"
+        worldfile = "/home/vince/catkin_ws/src/collision_avoidance/worlds/extrasimple.world"
         if gui:
             proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
         else:
             # Adding -g argument runs the simulator without the gui
             proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", "-g", worldfile], stdout=fp)
-    return proc.pid
+    return proc
 
 def save_model(trained_model):
     """
@@ -196,9 +194,16 @@ def save_model(trained_model):
     with open(filename, 'wb') as out:
         joblib.dump(trained_model, out)
 
-def main():
+def reset_positions():
+    """
+    Wrapper for service call to /reset_positions. Adds a delay
+    to avoid random segfaults.
+    """
+    rospy.sleep(2)
+    reset_simulation()
+    rospy.sleep(2)
 
-    sim_pid = start_simulator(gui=False)
+def main():
 
     # set initial command velocities to 0
     cmd_vel = Twist()
@@ -236,6 +241,8 @@ def main():
     global cumulative_reward
     it = 1  # iteration counter
 
+    print("==> Starting simulator")
+    sim_proc = start_simulator(gui=True)   # store a process object for the simulator
     rospy.sleep(1)  # wait a second to be sure we have good state infos
 
     while not rospy.is_shutdown():
@@ -259,7 +266,7 @@ def main():
             R = calc_reward(state, last_action)
 
             # update things that keep track of results
-            if (R == -2):
+            if (R == -1):
                 cf += 1  # we collided, iterate the counter
             cr += R  # add the reward to our running total
 
@@ -311,9 +318,9 @@ if __name__=='__main__':
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
         teleporter = rospy.Publisher('/robot_0/cmd_pose', Pose, queue_size=10)
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
-        tracker = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
-        #reset_positions = rospy.ServiceProxy('reset_positions', Empty)
-        rate = rospy.Rate(100) # in hz
+        crash_tracker = rospy.Subscriber('/robot_0/is_crashed', Int8, crash_callback)
+        reset_simulation = rospy.ServiceProxy('reset_positions', Empty)
+        rate = rospy.Rate(10) # in hz
 
         main()
     except rospy.ROSInterruptException:

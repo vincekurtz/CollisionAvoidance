@@ -11,7 +11,9 @@
 
 import rospy
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose
 from sensor_msgs.msg import LaserScan
+import random
 
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
@@ -70,29 +72,51 @@ def calc_obstacles(ranges):
 
     return obstacles
 
-def main():
-    # Create new ROS node with unique name
-    rospy.init_node('naive_controller', anonymous=True)
-    controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
-    sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
-    rate = rospy.Rate(10) # 10 hz
+def teleport_random():
+    """
+    Teleport the robot to a new random position
+    """
+    x_min = -8
+    x_max = 8
+    y_min = -8
+    y_max = 8
 
+    # Randomly generate a pose
+    cmd_pose = Pose()
+    cmd_pose.position.x = random.uniform(x_min, x_max)
+    cmd_pose.position.y = random.uniform(y_min, y_max)
+    cmd_pose.orientation.z = random.uniform(-7,7) # approximately 360degrees from a quaternarion
+    cmd_pose.orientation.w = 1
+
+    teleporter.publish(cmd_pose)
+
+def main():
     # set initial command velocities to 0
     cmd = Twist()
 
     while not rospy.is_shutdown():
-        # Sensor data updated asynchronously and stored in global var sensor_data
-        # Tell if there are obstacles in front, to the left, or to the right 
-        obstacles = calc_obstacles(sensor_data)
+        teleport_random()  # reset to a new position every so often
 
-        # Control based on sensor data
-        update_twist(cmd, obstacles)
+        for i in range(100):
+            # Sensor data updated asynchronously and stored in global var sensor_data
+            # Tell if there are obstacles in front, to the left, or to the right 
+            obstacles = calc_obstacles(sensor_data)
 
-        controller.publish(cmd)
-        #rate.sleep()
+            # Control based on sensor data
+            update_twist(cmd, obstacles)
+
+            controller.publish(cmd)
+            rate.sleep()
 
 if __name__=='__main__':
     try:
+        # Create new ROS node with unique name
+        rospy.init_node('naive_controller', anonymous=True)
+        controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
+        teleporter = rospy.Publisher('/robot_0/cmd_pose', Pose, queue_size=10)
+        sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
+        rate = rospy.Rate(10) # 10 hz
+
         main()
     except rospy.ROSInterruptException:
         pass

@@ -4,7 +4,9 @@ Multi-Robot Collision Avoidance using Reinforcement Learning
 ## Dependencies
 - ROS Indigo
 
-- Stage-ros with pose subscriber (for teleportation) (https://github.com/ros-simulation/stage_ros/tree/add_pose_sub)
+- Stage-ros 
+    - with pose subscriber (for teleportation) (https://github.com/ros-simulation/stage_ros/tree/add_pose_sub)
+    - with modification to publish collision info (https://answers.ros.org/question/65686/detect-collision-stage/)
 
 - Python 2.7
 
