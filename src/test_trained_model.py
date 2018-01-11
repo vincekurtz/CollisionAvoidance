@@ -7,6 +7,8 @@
 #
 ##
 
+base_dir = "/home/vjkurtz/catkin_ws/src/collision_avoidance"
+
 from rl_controller import *
 
 def load_model(fname):
@@ -20,12 +22,19 @@ def sensor_callback(data):
     global sensor_data
     sensor_data = data.ranges
 
+def crash_callback(data):
+    global is_crashed
+    if data.data:
+        is_crashed = True
+    else:
+        is_crashed = False
+
 def main():
     # start the simulator
     sim_pid = start_simulator(gui=True)
     rate.sleep()
 
-    load_model("/home/vince/catkin_ws/src/collision_avoidance/tmp/trained_model.pkl")
+    load_model("%s/tmp/trained_model.pkl" % base_dir)
     
     # set initial velocities to 0
     cmd = Twist()
@@ -36,7 +45,8 @@ def main():
     while not rospy.is_shutdown():
         state = np.array(sensor_data).reshape(1,-1)
 
-        if is_crashed():
+        if is_crashed:
+            #teleport_random()
             reset_positions()
             rate.sleep()
 
@@ -52,8 +62,9 @@ if __name__=="__main__":
         # Initialize ros node and publishers/subscribers
         rospy.init_node('rl_controller', anonymous=True)
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
+        teleporter = rospy.Publisher('/robot0/cmd_pose', Pose, queue_size=10)
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
-        tracker = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
+        crash_tracker = rospy.Subscriber('/robot_0/is_crashed', Int8, crash_callback)
         reset_positions = rospy.ServiceProxy('reset_positions', Empty)
         rate = rospy.Rate(100) # in hz
 

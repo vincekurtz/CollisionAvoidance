@@ -14,8 +14,11 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Int8
 from std_srvs.srv import Empty
+
 from sklearn.neural_network import MLPRegressor
+import tensorflow as tf
 from sklearn.externals import joblib
+
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
@@ -37,6 +40,73 @@ q_net = None
 iterations = []
 collision_frequencies = []
 cumulative_reward = []
+
+
+######### Initialize Q-Network ################
+# parameters
+learning_rate = 0.001
+
+n_hidden_1 = 100
+n_hidden_2 = 300
+n_hidden_3 = 100
+n_input = 180   # lidar data: one distance per degree
+n_classes = 3   # commands: left, right, straight
+
+# tf graph input
+X = tf.placeholder("float", [None, n_input])
+Y = tf.placeholder("float", [None, n_classes])
+
+# Layer weights and biases
+weights = {
+        'h1': tf.Variable(tf.random_normal([n_input, n_hidden_1])),
+        'h2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2])),
+        'h3': tf.Variable(tf.random_normal([n_hidden_2, n_hidden_3])),
+        'out': tf.Variable(tf.random_normal([n_hidden_3, n_classes]))
+}
+biases = {
+        'b1': tf.Variable(tf.random_normal([n_hidden_1])),
+        'b2': tf.Variable(tf.random_normal([n_hidden_2])),
+        'b3': tf.Variable(tf.random_normal([n_hidden_3])),
+        'out': tf.Variable(tf.random_normal([n_classes]))
+}
+
+# Create model
+def multilayer_perceptron(x):
+    # Hidden fully connected layer with sigmoid activation
+    layer_1 = tf.add(tf.matmul(x, weights['h1']), biases['b1'])
+    layer_1 = tf.sigmoid(layer_1)
+    #layer_1 = tf.nn.dropout(layer_1, keep_prob)  # apply dropout to hidden layer
+    
+    # Hidden fully connected layer with sigmoid activation
+    layer_2 = tf.add(tf.matmul(layer_1, weights['h2']), biases['b2'])
+    layer_2 = tf.sigmoid(layer_2)
+    #layer_2 = tf.nn.dropout(layer_2, keep_prob)
+
+    
+    # Hidden fully connected layer with sigmoid activation
+    layer_3 = tf.add(tf.matmul(layer_2, weights['h3']), biases['b3'])
+    layer_3 = tf.sigmoid(layer_3)
+    #layer_3 = tf.nn.dropout(layer_3, keep_prob)
+    # Output fully connected layer with linear activation
+    out_layer = tf.matmul(layer_3, weights['out']) + biases['out']
+    return out_layer
+
+# Construct model
+pred = multilayer_perceptron(X)
+
+# Define loss and optimizer
+loss_op = tf.reduce_mean(tf.square(pred-Y))
+optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+train_op = optimizer.minimize(loss_op)
+
+# Initializing the variables
+init = tf.global_variables_initializer()
+
+# And start the tf session
+sess = tf.Session()
+sess.run(init)
+
+###################################################
 
 def update_twist(twist, q_vals):
     """
@@ -102,11 +172,9 @@ def calc_reward(state, action):
     if is_crashed:
         #reset_positions()
         teleport_random()
-        return -10
-    elif close_to_obstacle(state):
         return -1
     elif moved_forward(action):
-        return +1
+        return +0.01
     else:
         return 0
 
@@ -205,21 +273,45 @@ def reset_positions():
     reset_simulation()
     rospy.sleep(2)
 
+def partial_fit(x_data, y_data):
+    """
+    Fit the network weights to the given data
+    """
+
+    assert len(x_data) == len(y_data)
+
+    N = len(x_data)  # the number of data points we're dealing with
+    print(x_data.shape, y_data.shape)
+
+    training_epochs = 100
+    display_step = 10
+    batch_size = 200
+
+    # Training cycle
+    for epoch in range(training_epochs):
+        avg_cost = 0.
+        total_batch = int(N/batch_size)
+        # Loop over all batches
+        for i in range(total_batch):
+            # Get next batch
+            batch_x = x_data[batch_size*i:batch_size*(i+1)]
+            batch_y = y_data[batch_size*i:batch_size*(i+1)]
+
+            # Run optimization op (backprop) and cost op (to get loss value)
+            _, c = sess.run([train_op, loss_op], feed_dict={X: batch_x, Y: batch_y})
+            # Compute average loss
+            avg_cost += c / total_batch
+        # Display logs per epoch step
+        if (epoch + 1) % display_step == 0:
+            print("Epoch:", '%04d' % (epoch+1), "cost={:.9f}".format(avg_cost))
+    print("Optimization Finished!")
+
+
 def main():
 
     # set initial command velocities to 0
     cmd_vel = Twist()
     cmd_pose = Pose()   # also initialize a pose for teleportation purposes
-
-    # initialize Q-network
-    global q_net
-    q_net = MLPRegressor(
-            solver='adam',
-            activation='relu',
-            hidden_layer_sizes=(100,300,100),
-            random_state=1,
-            warm_start=True   # reuse previous call to fit as initialization
-            )
 
     update_interval = 1000  # how many actions to take before retraining
     
@@ -227,14 +319,14 @@ def main():
     y_rand = np.vstack([np.array([1 for i in range(3)]).reshape(1,-1) for i in range(update_interval)])      # start with equal value on all actions
 
     # Train on random data initially, just so we can fit to something
-    q_net.partial_fit(X_rand,y_rand)
+    #partial_fit(X_rand,y_rand)
     
     last_action = 1
     last_state = X_rand[-1]  # take the last randomly generated entry to be the "previous state" for initialization
-    old_Q = q_net.predict(X_rand)
+    old_Q = sess.run(pred, feed_dict={X: X_rand})
 
     # initialize replay buffer
-    X = X_rand  # stores states
+    x = X_rand  # stores states
     y = y_rand  # stores corrected Q-values values
 
     # variables to plot results at the end
@@ -258,7 +350,7 @@ def main():
             state = np.array(sensor_data).reshape(1,-1)
 
             # calculate Q(s,a) with NN
-            Q_values = q_net.predict(state)
+            Q_values = sess.run(pred, feed_dict={X: state})
 
             # Control accordingly
             action = update_twist(cmd_vel, Q_values)
@@ -277,7 +369,7 @@ def main():
             corrected_Q = correct_Q(last_action, last_state, R, old_Q[0], Q_values[0])
 
             # Update replay buffer with correct Q(s,a)
-            X = np.vstack((X, last_state))
+            x = np.vstack((x, last_state))
             y = np.vstack((y, corrected_Q))
 
             # remember what we did this turn so we can see its result in the next step
@@ -287,16 +379,15 @@ def main():
 
             rate.sleep()
 
+        # Drop old data from the replay buffer
+        x = x[update_interval:]    
+        y = y[update_interval:]
 
         # Update network from replay buffer
         print("==> Retraining")
-        # Drop old data from the replay buffer
-        X = X[update_interval:]    
-        y = y[update_interval:]
-        print(X.shape,y.shape)
-        q_net.partial_fit(X,y)
+        partial_fit(x,y)
 
-        # Move everyone back to their original positions
+        # Reset the positions
         #reset_positions()
         teleport_random()
 
@@ -328,9 +419,12 @@ if __name__=='__main__':
     except rospy.ROSInterruptException:
         pass
     finally:
-        # always display plots before quitting, even when something gets messed up
-        # along the way
+        # Always do these things before quitting
+
+        sess.close()  # close the tf session
+
+        # display plots
         display_plot(iterations, collision_frequencies, cumulative_reward) 
 
-        # also be sure to save the model parameters
-        save_model(q_net)
+        # save the model parameters
+        #save_model(q_net)

@@ -12,6 +12,8 @@ Multi-Robot Collision Avoidance using Reinforcement Learning
 
 - scikit-learn
 
+- tensorflwo
+
 - numpy
 
 ## How to run
