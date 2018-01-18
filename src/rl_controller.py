@@ -15,33 +15,27 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Int8
 from std_srvs.srv import Empty
 
-from sklearn.neural_network import MLPRegressor
 import tensorflow as tf
-from sklearn.externals import joblib
 
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
 import subprocess
-import os
 import time
 
 home_dir = "/home/vjkurtz/"
+base_dir = "/home/vjkurtz/catkin_ws/src/collision_avoidance"
 
 # Sensor data stored in a global variable so it can be accessed asynchronously
 sensor_data = LaserScan().ranges
 odom_data = Odometry().twist.twist
 is_crashed = False
 
-# The network will be saved regardless of completion
-q_net = None
-
 # Collision frequencies for plotting are also global variables so we can 
 # access them even after the main program is shut down
 iterations = []
 collision_frequencies = []
 cumulative_reward = []
-
 
 ######### Initialize Q-Network ################
 # parameters
@@ -164,9 +158,9 @@ def teleport_random():
     cmd_pose.orientation.w = 1
 
     # ... and publish it as the new pose of the robot
-    time.sleep(0.1)
+    time.sleep(0.3)
     teleporter.publish(cmd_pose)
-    time.sleep(0.1)   # wait (in real time) before and after jumping to avoid segfaults
+    time.sleep(0.3)   # wait (in real time) before and after jumping to avoid segfaults
 
 def calc_reward(state, action):
     """
@@ -250,23 +244,13 @@ def display_plot(iters, coll_freq, cu_reward):
 
 def start_simulator(gui=True):
     with open('%s/.ros/log/stage_from_rl_controller.log' % home_dir, 'w') as fp:
-        worldfile = "%s/catkin_ws/src/collision_avoidance/worlds/extrasimple.world" % home_dir
+        worldfile = "%s/worlds/extrasimple.world" % base_dir
         if gui:
             proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
         else:
             # Adding -g argument runs the simulator without the gui
             proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", "-g", worldfile], stdout=fp)
     return proc
-
-def save_model(trained_model):
-    """
-    Save our parameters to a pickel file so it can
-    be reloaded and used again later
-    """
-    filename = '%s/catkin_ws/src/collision_avoidance/tmp/trained_model.pkl' % home_dir
-    print("\n==> Saving Model to %s" % filename)
-    with open(filename, 'wb') as out:
-        joblib.dump(trained_model, out)
 
 def reset_positions():
     """
@@ -422,14 +406,17 @@ if __name__=='__main__':
         main()
     except rospy.ROSInterruptException:
         pass
-    finally:
-        # Always do these things before quitting
+    finally:   # Always do these things before quitting
 
-        sess.close()  # close the tf session
+        # save the model parameters
+        save_name = "%s/tmp/RLCA_saved_model" % base_dir
+        #save_name += time.strftime("%Y%m%d%H%M")  # add a unique timestamp
+        saver.save(sess, save_name)
+        print("\n\nSaved Parameters as %s\n\n" % save_name)
 
         # display plots
         display_plot(iterations, collision_frequencies, cumulative_reward) 
 
-        # save the model parameters
-        save_name = "rl_ca_model-"
-        saver.save(sess, save_name)
+        # close the tf session
+        sess.close()  
+

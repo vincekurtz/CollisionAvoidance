@@ -11,10 +11,6 @@ base_dir = "/home/vjkurtz/catkin_ws/src/collision_avoidance"
 
 from rl_controller import *
 
-def load_model(fname):
-    global q_net   # defined in rl_controller.py
-    q_net = joblib.load(fname)
-
 def sensor_callback(data):
     """
     Update the data from the sensor as we get it
@@ -32,30 +28,32 @@ def crash_callback(data):
 def main():
     # start the simulator
     sim_pid = start_simulator(gui=True)
-    rate.sleep()
 
-    load_model("%s/tmp/trained_model.pkl" % base_dir)
-    
     # set initial velocities to 0
     cmd = Twist()
 
     rospy.sleep(1)
 
     print("==> Running")
-    while not rospy.is_shutdown():
-        state = np.array(sensor_data).reshape(1,-1)
+    with tf.Session() as sess:
+        # Load saved session
+        new_saver = tf.train.import_meta_graph('%s/tmp/RLCA_saved_model.meta' % base_dir)
+        new_saver.restore(sess, tf.train.latest_checkpoint('./'))
+        
+        while not rospy.is_shutdown():
+            state = np.array(sensor_data).reshape(1,-1)
 
-        if is_crashed:
-            #teleport_random()
-            reset_positions()
+            if is_crashed:
+                #teleport_random()
+                reset_positions()
+                rate.sleep()
+
+            # move according to RL controller
+            Q_values = sess.run(pred, feed_dict={X: state})
+            action = update_twist(cmd, Q_values)  # uses epsilon-greedy
+            controller.publish(cmd)
+
             rate.sleep()
-
-        # move according to RL controller
-        Q_values = q_net.predict(state)
-        action = update_twist(cmd, Q_values)  # uses epsilon-greedy
-        controller.publish(cmd)
-
-        rate.sleep()
 
 if __name__=="__main__":
     try:
