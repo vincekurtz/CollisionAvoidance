@@ -2,7 +2,7 @@
 Multi-Robot Collision Avoidance using Reinforcement Learning
 
 ## Dependencies
-- ROS Indigo
+- ROS Kinetic
 
 - Stage-ros 
     - with pose subscriber (for teleportation) (https://github.com/ros-simulation/stage_ros/tree/add_pose_sub)
@@ -10,16 +10,16 @@ Multi-Robot Collision Avoidance using Reinforcement Learning
 
 - Python 2.7
 
-- scikit-learn
-
-- tensorflwo
+- tensorflow
 
 - numpy
 
 ## How to run
 Start ROS `roscore`
 
-Run simple RL controller (will start simulation too): `rosrun collision_avoidance /rl_controller.py`
+Run simple RL controller (will start simulation too): `rosrun collision_avoidance rl_controller.py`
+
+Test a trained model `rosrun collision_avoidance test_trained_model.py`
 
 Start simulation alone: `rosrun stage_ros stageros [worldfile]`
 
