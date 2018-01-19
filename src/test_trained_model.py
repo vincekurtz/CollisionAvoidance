@@ -38,7 +38,7 @@ def main():
     with tf.Session() as sess:
         # Load saved session
         new_saver = tf.train.import_meta_graph('%s/tmp/RLCA_saved_model.meta' % base_dir)
-        new_saver.restore(sess, tf.train.latest_checkpoint('./'))
+        new_saver.restore(sess, tf.train.latest_checkpoint('%s/tmp/' % base_dir))
         
         while not rospy.is_shutdown():
             state = np.array(sensor_data).reshape(1,-1)
@@ -49,7 +49,10 @@ def main():
                 rate.sleep()
 
             # move according to RL controller
-            Q_values = sess.run(pred, feed_dict={X: state})
+            Q_values = sess.run(pred, feed_dict={X: state, keep_prob: 0.8})
+            variances = estimate_uncertainty(state, n_passes=100)
+            print("Q-Variances: " + str(variances))
+
             action = update_twist(cmd, Q_values)  # uses epsilon-greedy
             controller.publish(cmd)
 

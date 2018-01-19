@@ -65,23 +65,26 @@ biases = {
         'out': tf.Variable(tf.random_normal([n_classes]))
 }
 
+# Dropout parameter
+keep_prob = tf.placeholder(tf.float32)
+
 # Create model
 def multilayer_perceptron(x):
     # Hidden fully connected layer with sigmoid activation
     layer_1 = tf.add(tf.matmul(x, weights['h1']), biases['b1'])
     layer_1 = tf.sigmoid(layer_1)
-    #layer_1 = tf.nn.dropout(layer_1, keep_prob)  # apply dropout to hidden layer
+    layer_1 = tf.nn.dropout(layer_1, keep_prob)  # apply dropout to hidden layer
     
     # Hidden fully connected layer with sigmoid activation
     layer_2 = tf.add(tf.matmul(layer_1, weights['h2']), biases['b2'])
     layer_2 = tf.sigmoid(layer_2)
-    #layer_2 = tf.nn.dropout(layer_2, keep_prob)
-
+    layer_2 = tf.nn.dropout(layer_2, keep_prob)
     
     # Hidden fully connected layer with sigmoid activation
     layer_3 = tf.add(tf.matmul(layer_2, weights['h3']), biases['b3'])
     layer_3 = tf.sigmoid(layer_3)
-    #layer_3 = tf.nn.dropout(layer_3, keep_prob)
+    layer_3 = tf.nn.dropout(layer_3, keep_prob)
+
     # Output fully connected layer with linear activation
     out_layer = tf.matmul(layer_3, weights['out']) + biases['out']
     return out_layer
@@ -261,6 +264,26 @@ def reset_positions():
     reset_simulation()
     rospy.sleep(2)
 
+def estimate_uncertainty(input_data, n_passes=10, k_prob=0.8):
+    """
+    Use dropout to estimate uncertainty. For a given input, 
+    run through the network a bunch of times with different (Bernoulli) 
+    dropout masks. High variance in the results implies high uncertainty.
+
+    n_passes is the number of different dropout masks to use
+    k_prob governs how many weights to drop out
+    """
+
+    predictions = sess.run(pred, feed_dict={X: input_data, keep_prob: k_prob})
+    for i in range(n_passes - 1):
+        Q_predicted = sess.run(pred, feed_dict={X: input_data, keep_prob: k_prob})
+        predictions = np.vstack((predictions, Q_predicted))
+
+    # Calculate variances, one for each element in Q_predicted (left, forward, right)
+    variances = np.var(predictions, axis=0)
+
+    return variances
+
 def partial_fit(x_data, y_data):
     """
     Fit the network weights to the given data
@@ -286,7 +309,7 @@ def partial_fit(x_data, y_data):
             batch_y = y_data[batch_size*i:batch_size*(i+1)]
 
             # Run optimization op (backprop) and cost op (to get loss value)
-            _, c = sess.run([train_op, loss_op], feed_dict={X: batch_x, Y: batch_y})
+            _, c = sess.run([train_op, loss_op], feed_dict={X: batch_x, Y: batch_y, keep_prob: 0.9})
             # Compute average loss
             avg_cost += c / total_batch
         # Display logs per epoch step
@@ -311,7 +334,7 @@ def main():
     
     last_action = 1
     last_state = X_rand[-1]  # take the last randomly generated entry to be the "previous state" for initialization
-    old_Q = sess.run(pred, feed_dict={X: X_rand})
+    old_Q = sess.run(pred, feed_dict={X: X_rand, keep_prob: 0.8})
 
     # initialize replay buffer
     x = X_rand  # stores states
@@ -338,7 +361,11 @@ def main():
             state = np.array(sensor_data).reshape(1,-1)
 
             # calculate Q(s,a) with NN
-            Q_values = sess.run(pred, feed_dict={X: state})
+            Q_values = sess.run(pred, feed_dict={X: state, keep_prob: 0.8})
+
+            # estimate uncertainty using dropout
+            q_variances = estimate_uncertainty(state)  # TODO: figure out how to use this
+            print(q_variances)
 
             # Control accordingly
             action = update_twist(cmd_vel, Q_values)
