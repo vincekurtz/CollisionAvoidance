@@ -245,16 +245,6 @@ def display_plot(iters, coll_freq, cu_reward):
     #plt.save("collision_frequency_plot.png")
     plt.show()
 
-def start_simulator(gui=True):
-    with open('%s/.ros/log/stage_from_rl_controller.log' % home_dir, 'w') as fp:
-        worldfile = "%s/worlds/extrasimple.world" % base_dir
-        if gui:
-            proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", worldfile], stdout=fp)
-        else:
-            # Adding -g argument runs the simulator without the gui
-            proc = subprocess.Popen(["rosrun", "stage_ros", "stageros", "-g", worldfile], stdout=fp)
-    return proc
-
 def reset_positions():
     """
     Wrapper for service call to /reset_positions. Adds a delay
@@ -346,8 +336,6 @@ def main():
     global cumulative_reward
     it = 1  # iteration counter
 
-    print("==> Starting simulator")
-    sim_proc = start_simulator(gui=True)   # store a process object for the simulator
     rospy.sleep(1)  # wait a second to be sure we have good state infos
 
     while not rospy.is_shutdown():
@@ -364,8 +352,8 @@ def main():
             Q_values = sess.run(pred, feed_dict={X: state, keep_prob: 0.8})
 
             # estimate uncertainty using dropout
-            q_variances = estimate_uncertainty(state)  # TODO: figure out how to use this
-            print(q_variances)
+            #q_variances = estimate_uncertainty(state)  # TODO: figure out how to use this
+            #print(q_variances)
 
             # Control accordingly
             action = update_twist(cmd_vel, Q_values)
@@ -422,7 +410,7 @@ def main():
 if __name__=='__main__':
     try:
         # Initialize ros node and publishers/subscribers
-        rospy.init_node('rl_controller', anonymous=True)
+        rospy.init_node('rl_controller', anonymous=False)
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
         teleporter = rospy.Publisher('/robot_0/cmd_pose', Pose, queue_size=10)
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)

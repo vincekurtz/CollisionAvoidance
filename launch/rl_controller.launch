@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="stage_ros" type="stageros" args="$(find collision_avoidance)/worlds/extrasimple.world" name="stageros" respawn="true"/>
+    <node pkg="collision_avoidance" type="rl_controller.py" name="rl_controller" output="screen"/>
+</launch>

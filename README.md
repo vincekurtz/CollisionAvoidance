@@ -17,7 +17,7 @@ Multi-Robot Collision Avoidance using Reinforcement Learning
 ## How to run
 Start ROS `roscore`
 
-Run simple RL controller (will start simulation too): `rosrun collision_avoidance rl_controller.py`
+Run simple RL controller (will start simulation too): `roslaunch collision_avoidance rl_controller.launch`
 
 Test a trained model `rosrun collision_avoidance test_trained_model.py`
 
