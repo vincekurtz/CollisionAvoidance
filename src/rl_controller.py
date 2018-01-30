@@ -14,6 +14,7 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Int8
 from std_srvs.srv import Empty
+from tf.transformations import euler_from_quaternion
 
 import tensorflow as tf
 
@@ -44,7 +45,7 @@ learning_rate = 0.001
 n_hidden_1 = 100
 n_hidden_2 = 300
 n_hidden_3 = 100
-n_input = 180   # lidar data: one distance per degree
+n_input = 181   # lidar data (one distance per degree) plus angle to the goal (radians)
 n_classes = 3   # commands: left, right, straight
 
 # tf graph input
@@ -165,19 +166,22 @@ def teleport_random():
     teleporter.publish(cmd_pose)
     time.sleep(0.3)   # wait (in real time) before and after jumping to avoid segfaults
 
-def calc_reward(state, action):
+def calc_reward(angle_to_goal):
     """
-    Give a scalar reward based on the last action
-    and the current state.
+    Give a scalar reward
     """
     if is_crashed:
         #reset_positions()
         teleport_random()
         return -1
-    elif moved_forward(action):
-        return +0.01
+    elif reached_goal(odom_data):
+        print("Reached goal!!! HURRAY!")
+        time.sleep(1)
+        reset_positions()
+        return 1
     else:
-        return 0
+        # Give some reward for facing the goal
+        return -abs(angle_to_goal / 20)
 
 def moved_forward(action):
     """
@@ -207,7 +211,7 @@ def sensor_callback(data):
 
 def odom_callback(data):
     global odom_data
-    odom_data = data.twist.twist
+    odom_data = data
 
 def crash_callback(data):
     global is_crashed
@@ -245,14 +249,56 @@ def display_plot(iters, coll_freq, cu_reward):
     #plt.save("collision_frequency_plot.png")
     plt.show()
 
+def reached_goal(odometry_data):
+    """
+    Return true or false depending if we're in the target
+    position, defined at (x,y) = (7,7)
+    """
+    target_x = 7
+    target_y = 7
+    tolerance = 1
+
+    robot_x = odometry_data.pose.pose.position.x
+    robot_y = odometry_data.pose.pose.position.y
+
+    if (abs(robot_x - target_x) < tolerance) and (abs(robot_y - target_y) < tolerance):
+        return True
+    return False
+
+def get_angle_to_goal(odometry_data):
+    """
+    Return the angle from the current position to the target location
+    """
+    # The target is at (x,y) = (7, 7)
+    target_x = 7
+    target_y = 7
+
+    # Robot position
+    robot_x = odometry_data.pose.pose.position.x
+    robot_y = odometry_data.pose.pose.position.y
+
+    # Angle from our current position to the goal
+    theta = np.arctan((target_y - robot_y) / (target_x - robot_x))
+
+    # Angle we're actually facing
+    quaternion = (
+            odometry_data.pose.pose.orientation.x,
+            odometry_data.pose.pose.orientation.y,
+            odometry_data.pose.pose.orientation.z,
+            odometry_data.pose.pose.orientation.w)
+    euler = euler_from_quaternion(quaternion)
+    phi = euler[2]
+
+    return phi-theta
+
 def reset_positions():
     """
     Wrapper for service call to /reset_positions. Adds a delay
     to avoid random segfaults.
     """
-    rospy.sleep(2)
+    time.sleep(0.3)
     reset_simulation()
-    rospy.sleep(2)
+    time.sleep(0.3)
 
 def estimate_uncertainty(input_data, n_passes=10, k_prob=0.8):
     """
@@ -316,7 +362,7 @@ def main():
 
     update_interval = 1000  # how many actions to take before retraining
     
-    X_rand = np.vstack([np.array([8*random.random() for i in range(180)]).reshape(1,-1) for i in range(update_interval)])  # random sensor input
+    X_rand = np.vstack([np.array([8*random.random() for i in range(181)]).reshape(1,-1) for i in range(update_interval)])  # random sensor input
     y_rand = np.vstack([np.array([1 for i in range(3)]).reshape(1,-1) for i in range(update_interval)])      # start with equal value on all actions
 
     # Train on random data initially, just so we can fit to something
@@ -345,8 +391,11 @@ def main():
 
         for i in range(update_interval):
             # Sensor data updated asynchronously and stored in global var sensor_data
-            # Get state (sensor info)
-            state = np.array(sensor_data).reshape(1,-1)
+            # Get state (sensor info + goal direction)
+            a2g = get_angle_to_goal(odom_data)
+            state = np.array( (a2g,) + sensor_data ).reshape(1,-1)
+            # Note that sensor data range is [0,4] and angle to goal range is [-pi, pi],
+            # so feature scaling won't be necessary
 
             # calculate Q(s,a) with NN
             Q_values = sess.run(pred, feed_dict={X: state, keep_prob: 0.8})
@@ -360,7 +409,7 @@ def main():
             controller.publish(cmd_vel)
 
             # Get reward from last action
-            R = calc_reward(state, last_action)
+            R = calc_reward(a2g)
 
             # update things that keep track of results
             if (R == -1):
@@ -413,6 +462,7 @@ if __name__=='__main__':
         rospy.init_node('rl_controller', anonymous=False)
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
         teleporter = rospy.Publisher('/robot_0/cmd_pose', Pose, queue_size=10)
+        odometer = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)  # so we know angle to the goal
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
         crash_tracker = rospy.Subscriber('/robot_0/is_crashed', Int8, crash_callback)
         reset_simulation = rospy.ServiceProxy('reset_positions', Empty)

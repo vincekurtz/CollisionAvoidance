@@ -18,6 +18,10 @@ def sensor_callback(data):
     global sensor_data
     sensor_data = data.ranges
 
+def odom_callback(data):
+    global odom_data
+    odom_data = data
+
 def crash_callback(data):
     global is_crashed
     if data.data:
@@ -26,9 +30,6 @@ def crash_callback(data):
         is_crashed = False
 
 def main():
-    # start the simulator
-    sim_pid = start_simulator(gui=True)
-
     # set initial velocities to 0
     cmd = Twist()
 
@@ -41,7 +42,8 @@ def main():
         new_saver.restore(sess, tf.train.latest_checkpoint('%s/tmp/' % base_dir))
         
         while not rospy.is_shutdown():
-            state = np.array(sensor_data).reshape(1,-1)
+            a2g = get_angle_to_goal(odom_data)
+            state = np.array( (a2g,) + sensor_data).reshape(1,-1)
 
             if is_crashed:
                 #teleport_random()
@@ -63,7 +65,8 @@ if __name__=="__main__":
         # Initialize ros node and publishers/subscribers
         rospy.init_node('rl_controller', anonymous=True)
         controller = rospy.Publisher('/robot_0/cmd_vel', Twist, queue_size=10)
-        teleporter = rospy.Publisher('/robot0/cmd_pose', Pose, queue_size=10)
+        teleporter = rospy.Publisher('/robot_0/cmd_pose', Pose, queue_size=10)
+        odometer = rospy.Subscriber('/robot_0/base_pose_ground_truth', Odometry, odom_callback)
         sensor = rospy.Subscriber('/robot_0/base_scan', LaserScan, sensor_callback)
         crash_tracker = rospy.Subscriber('/robot_0/is_crashed', Int8, crash_callback)
         reset_positions = rospy.ServiceProxy('reset_positions', Empty)

@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="stage_ros" type="stageros" args="$(find collision_avoidance)/worlds/extrasimple.world" name="stageros" output="screen"/>
+    <node pkg="collision_avoidance" type="test_trained_model.py" name="rl_controller" output="screen"/>
+</launch>
