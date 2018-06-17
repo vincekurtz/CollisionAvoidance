@@ -1,4 +1,5 @@
 <launch>
-    <node pkg="stage_ros" type="stageros" args="-g $(find collision_avoidance)/worlds/extrasimple.world" name="stageros" output="screen"/>
+    <!-- Add a "-g" argument to stageros to launch the simulation without the gui -->
+    <node pkg="stage_ros" type="stageros" args="$(find collision_avoidance)/worlds/extrasimple.world" name="stageros" output="screen"/>
     <node pkg="collision_avoidance" type="rl_controller.py" name="rl_controller" output="screen"/>
 </launch>
